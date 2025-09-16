@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chain-semantic-splitter"
-version = "0.2.1"
+version = "0.2.4"
 description = "A LangChain TextSplitter that uses semantic understanding to intelligently merge text chunks."
 readme = "README.md"
 requires-python = ">=3.10"

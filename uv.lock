@@ -256,7 +256,7 @@ wheels = [
 
 [[package]]
 name = "chain-semantic-splitter"
-version = "0.2.1"
+version = "0.2.4"
 source = { editable = "." }
 dependencies = [
     { name = "build" },

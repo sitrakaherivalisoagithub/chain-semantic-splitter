@@ -81,8 +81,7 @@ class SemanticCharacterTextSplitter(TextSplitter):
 
         self._initial_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            separator=separator,
+            chunk_overlap=chunk_overlap
         )
         self._decision_chain = self._build_decision_chain()
 
@@ -115,11 +114,9 @@ Consider if the second chunk continues the thought, topic, or narrative of the f
 
 {format_instructions}
 """
-        )
+        ).partial(format_instructions=parser.get_format_instructions())
 
-        return (prompt | self.llm | parser).with_partial(
-            format_instructions=parser.get_format_instructions()
-        )
+        return prompt | self.llm | parser
 
     def _decide_to_merge(self, chunk1: str, chunk2: str) -> bool:
         """
