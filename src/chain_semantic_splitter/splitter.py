@@ -3,13 +3,14 @@
 This module defines the SemanticCharacterTextSplitter class for semantically
 aware text splitting within the LangChain ecosystem.
 """
+from __future__ import annotations
 
 import logging
 import json
 import time
-from typing import List, Any, Dict, Union
+from typing import Any, Dict, Union
 
-from langchain.text_splitter import TextSplitter, RecursiveCharacterTextSplitter
+from langchain_text_splitters import TextSplitter, RecursiveCharacterTextSplitter
 from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
@@ -157,7 +158,7 @@ Consider if the second chunk continues the thought, topic, or narrative of the f
         logger.error(f"Failed to get a valid decision from LLM after {self.max_retries} attempts. Applying fallback strategy: not merging.")
         return False
 
-    def split_text(self, text: str) -> Union[List[str], List[Document]]:
+    def split_text(self, text: str) -> list[str]:
         """
         Splits a given text into semantically coherent chunks.
 
@@ -165,8 +166,8 @@ Consider if the second chunk continues the thought, topic, or narrative of the f
             text (str): The text to be split.
 
         Returns:
-            Union[List[str], List[Document]]: A list of strings or LangChain
-            Document objects, where each item is a semantically coherent chunk.
+            list[str]: A list of strings, where each item is a semantically
+            coherent chunk.
         """
         initial_chunks = self._initial_splitter.split_text(text)
         if not initial_chunks:
@@ -186,6 +187,25 @@ Consider if the second chunk continues the thought, topic, or narrative of the f
         if current_chunk_buffer:
             final_chunks.append(current_chunk_buffer)
 
-        if self.return_docs:
-            return [Document(page_content=chunk) for chunk in final_chunks]
         return final_chunks
+
+    def create_documents(
+        self, texts: list[str], metadatas: list[dict] | None = None
+    ) -> list[Document]:
+        """Create documents from a list of texts."""
+        _metadatas = metadatas or [{}] * len(texts)
+        documents = []
+        for i, text in enumerate(texts):
+            for chunk in self.split_text(text):
+                metadata = _metadatas[i].copy()
+                new_doc = Document(page_content=chunk, metadata=metadata)
+                documents.append(new_doc)
+        return documents
+
+    def split_documents(self, documents: list[Document]) -> list[Document]:
+        """Split documents."""
+        texts, metadatas = [], []
+        for doc in documents:
+            texts.append(doc.page_content)
+            metadatas.append(doc.metadata)
+        return self.create_documents(texts, metadatas=metadatas)

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chain-semantic-splitter"
-version = "0.1.0"
+version = "0.2.1"
 description = "A LangChain TextSplitter that uses semantic understanding to intelligently merge text chunks."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,6 +25,7 @@ classifiers = [
 ]
 dependencies = [
     "build>=1.3.0",
+    "langchain>=0.1.16,<0.2.0",
     "langchain-core>=0.1.40,<0.2.0",
     "langchain-google-genai>=0.0.9,<0.1.0",
     "twine>=6.0.1",
