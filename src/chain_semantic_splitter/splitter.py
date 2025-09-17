@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import json
 import time
-from typing import Any, Dict, Union
+from typing import Any, Dict
 
 from langchain_text_splitters import TextSplitter, RecursiveCharacterTextSplitter
 from langchain_core.pydantic_v1 import BaseModel, Field
@@ -41,17 +41,17 @@ class SemanticCharacterTextSplitter(TextSplitter):
     chunks should be merged based on their semantic content.
 
     This approach aims to create more coherent chunks that respect logical
-    boundaries in the text.
+    boundaries in the text, and offers flexibility in its configuration.
     """
 
     def __init__(
         self,
         llm: BaseLanguageModel,
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
+        initial_splitter: TextSplitter | None = None,
+        chunk_size: int = 2000,
+        chunk_overlap: int = 400,
+        context_margin: int = 100,
         max_retries: int = 3,
-        separator: str = "\n",
-        return_docs: bool = False,
         **kwargs: Any,
     ):
         """
@@ -59,43 +59,62 @@ class SemanticCharacterTextSplitter(TextSplitter):
 
         Args:
             llm (BaseLanguageModel): An instance of a LangChain-compatible LLM
-                (e.g., ChatGoogleGenerativeAI) that will be used to make merge
-                decisions.
-            chunk_size (int): The target size for the initial character-based
-                splitting.
-            chunk_overlap (int): The overlap between chunks in the initial
-                splitting.
+                (e.g., ChatGoogleGenerativeAI) used to make merge decisions.
+            initial_splitter (TextSplitter, optional): A pre-configured text
+                splitter for the initial coarse splitting. If None, a
+                RecursiveCharacterTextSplitter will be created using
+                chunk_size and chunk_overlap. Defaults to None.
+            chunk_size (int): The target size for the initial splitting if no
+                initial_splitter is provided.
+            chunk_overlap (int): The overlap for the initial splitting if no
+                initial_splitter is provided.
+            context_margin (int): The number of extra characters to include
+                on each side of the overlap zone when presenting context
+                to the LLM.
             max_retries (int): The maximum number of times to retry an API call
                 to the LLM in case of failure.
-            separator (str): The separator to use when merging chunks.
-            return_docs (bool): If True, returns a list of LangChain Document
-                objects; otherwise, returns a list of strings.
-            **kwargs: Additional keyword arguments to be passed to the parent
-                TextSplitter class.
+            **kwargs: Additional keyword arguments for the parent TextSplitter class.
         """
+        # Note: we pass chunk_size and chunk_overlap to super() for LangChain compatibility,
+        # but the primary logic uses the properties of _initial_splitter.
         super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
-        self.llm = llm
-        self.max_retries = max_retries
-        self._separator = separator
-        self.return_docs = return_docs
 
-        self._initial_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
-        self._decision_chain = self._build_decision_chain()
+        self.llm = llm
+        self.context_margin = context_margin
+        self.max_retries = max_retries
+        
+        if initial_splitter:
+            self._initial_splitter = initial_splitter
+            # Override chunk_size and chunk_overlap to match the provided splitter
+            self._chunk_size = initial_splitter._chunk_size
+            self._chunk_overlap = initial_splitter._chunk_overlap
+        else:
+            self._initial_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=self._chunk_size,
+                chunk_overlap=self._chunk_overlap
+            )
+
+    @property
+    def _decision_chain(self):
+        """
+        Lazily builds and returns the LCEL chain for merge decisions.
+        This ensures the chain always uses the current state of the object (e.g., self.llm).
+        """
+        if not hasattr(self, "_internal_decision_chain"):
+            self._internal_decision_chain = self._build_decision_chain()
+        return self._internal_decision_chain
 
     def _build_decision_chain(self):
         """
         Constructs the LangChain Expression Language (LCEL) chain for making
         merge decisions.
-
-        The chain consists of a prompt, the language model, and a JSON parser.
         """
         parser = JsonOutputParser(pydantic_object=MergeDecision)
 
         prompt = ChatPromptTemplate.from_template(
-            """You are an expert in text analysis and segmentation. Your task is to determine if two adjacent text chunks should be merged into a single, coherent segment.
+            """You are an expert in text analysis and segmentation for a Retrieval-Augmented Generation (RAG) system. Your task is to be strict and determine if two adjacent text chunks should be merged.
+
+Only merge if the second chunk is a direct and necessary continuation of the first. If a new, distinct topic or sub-topic begins, do not merge.
 
 Context:
 The first chunk ends with the following text:
@@ -110,7 +129,6 @@ The second chunk begins with the following text:
 
 Decision Task:
 Based on the content, do these two chunks belong together in the same semantic segment?
-Consider if the second chunk continues the thought, topic, or narrative of the first.
 
 {format_instructions}
 """
@@ -121,18 +139,11 @@ Consider if the second chunk continues the thought, topic, or narrative of the f
     def _decide_to_merge(self, chunk1: str, chunk2: str) -> bool:
         """
         Uses the LLM chain to decide whether two chunks should be merged.
-
         This method includes retry logic, exponential backoff, and a fallback mechanism.
-
-        Args:
-            chunk1 (str): The current text buffer.
-            chunk2 (str): The next chunk to potentially merge.
-
-        Returns:
-            bool: True if the chunks should be merged, False otherwise.
         """
-        chunk1_end = chunk1[-(self._chunk_overlap + 100):]
-        chunk2_start = chunk2[:(self._chunk_overlap + 100)]
+        context_window_size = self._chunk_overlap + self.context_margin
+        chunk1_end = chunk1[-context_window_size:]
+        chunk2_start = chunk2[:context_window_size]
 
         for attempt in range(self.max_retries):
             try:
@@ -150,7 +161,8 @@ Consider if the second chunk continues the thought, topic, or narrative of the f
                 logger.warning(f"Attempt {attempt+1}/{self.max_retries}: Unexpected API error: {e}. Retrying...")
 
             # Exponential backoff before the next retry
-            time.sleep(2 ** attempt)
+            if attempt < self.max_retries - 1:
+                time.sleep(2 ** attempt)
 
         logger.error(f"Failed to get a valid decision from LLM after {self.max_retries} attempts. Applying fallback strategy: not merging.")
         return False
@@ -158,13 +170,6 @@ Consider if the second chunk continues the thought, topic, or narrative of the f
     def split_text(self, text: str) -> list[str]:
         """
         Splits a given text into semantically coherent chunks.
-
-        Args:
-            text (str): The text to be split.
-
-        Returns:
-            list[str]: A list of strings, where each item is a semantically
-            coherent chunk.
         """
         initial_chunks = self._initial_splitter.split_text(text)
         if not initial_chunks:
@@ -176,7 +181,8 @@ Consider if the second chunk continues the thought, topic, or narrative of the f
         for i in range(1, len(initial_chunks)):
             next_chunk = initial_chunks[i]
             if self._decide_to_merge(current_chunk_buffer, next_chunk):
-                current_chunk_buffer += self._separator + next_chunk
+                # Only append the part of the next_chunk that is not overlapping
+                current_chunk_buffer += next_chunk[self._chunk_overlap:]
             else:
                 final_chunks.append(current_chunk_buffer)
                 current_chunk_buffer = next_chunk
@@ -206,3 +212,4 @@ Consider if the second chunk continues the thought, topic, or narrative of the f
             texts.append(doc.page_content)
             metadatas.append(doc.metadata)
         return self.create_documents(texts, metadatas=metadatas)
+
