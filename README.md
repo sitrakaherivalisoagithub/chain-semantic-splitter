@@ -33,7 +33,7 @@ from langchain_core.documents import Document
 
 # 1. Initialize the LLM you want to use for decision making
 # Make sure you have your GOOGLE_API_KEY set in your environment
-llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0)
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
 
 # 2. Create an instance of the splitter
 semantic_splitter = SemanticCharacterTextSplitter(
@@ -69,6 +69,12 @@ for i, chunk in enumerate(documents):
 3.  **LLM-Powered Decision**: For each pair, it asks the configured LLM whether the two chunks are semantically related and should be merged. The LLM's response is a structured JSON object (`{"should_merge": true/false, "reason": "..."}`).
 4.  **Building Final Chunks**: If the LLM decides to merge, the chunks are combined. If not, the current chunk is considered complete, and a new one is started.
 5.  **Final Output**: The process continues until all initial chunks have been processed, resulting in a list of semantically coherent text segments.
+
+## Architecture
+
+The flow of the `SemanticCharacterTextSplitter` can be represented as follows:
+
+![Architecture du Semantic Splitter](docs/semantic_splitter_architecture.png)
 
 ## License
 
