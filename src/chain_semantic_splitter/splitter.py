@@ -112,9 +112,7 @@ class SemanticCharacterTextSplitter(TextSplitter):
         parser = JsonOutputParser(pydantic_object=MergeDecision)
 
         prompt = ChatPromptTemplate.from_template(
-            """You are an expert in text analysis and segmentation for a Retrieval-Augmented Generation (RAG) system. Your task is to be strict and determine if two adjacent text chunks should be merged.
-
-Only merge if the second chunk is a direct and necessary continuation of the first. If a new, distinct topic or sub-topic begins, do not merge.
+            """You are an expert in text analysis and segmentation. Your task is to determine if two adjacent text chunks should be merged into a single, coherent segment.
 
 Context:
 The first chunk ends with the following text:
@@ -129,6 +127,7 @@ The second chunk begins with the following text:
 
 Decision Task:
 Based on the content, do these two chunks belong together in the same semantic segment?
+Consider if the second chunk continues the thought, topic, or narrative of the first.
 
 {format_instructions}
 """
